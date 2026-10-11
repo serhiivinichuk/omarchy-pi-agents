@@ -21,6 +21,7 @@ done
 UNIT_DIR="${HOME}/.config/systemd/user"
 COLLECTOR="${HOME}/.local/bin/pi-agent-usage"
 STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/omarchy/agents/usage"
+CLONE_DIR="${HOME}/.config/omarchy/plugins/$(id -un).agents"
 
 if (( ! ASSUME_YES )); then
   read -r -p "Remove the Pi usage collector and timer? [y/N] " reply
@@ -35,12 +36,21 @@ rm -f "$UNIT_DIR/pi-agent-usage.timer" "$UNIT_DIR/pi-agent-usage.service"
 rm -f "$COLLECTOR"
 rm -f "$STATE_DIR/pi.json"
 
+# Drop the Pi mark but leave the cloned widget itself: it may hold other
+# customizations. To restore the stock widget, switch the bar back to
+# omarchy.agents and delete $CLONE_DIR by hand.
+rm -f "$CLONE_DIR/assets/pi.svg" "$CLONE_DIR/assets/pi-light.svg"
+
 if command -v systemctl >/dev/null 2>&1; then
   systemctl --user daemon-reload 2>/dev/null || true
 fi
 
 if command -v omarchy-shell >/dev/null 2>&1; then
+  omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
   omarchy-shell omarchy.agents refresh >/dev/null 2>&1 || true
 fi
 
 echo "ok removed. (left ${HOME}/.config/omarchy/agents/pi-usage.env in place)"
+if [[ -d $CLONE_DIR ]]; then
+  echo "    left cloned widget at ${CLONE_DIR} (remove the whole dir to fully unclone)"
+fi

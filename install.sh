@@ -6,7 +6,7 @@
 # that refreshes it, then nudges the running shell to rescan.
 #
 # Usage:
-#   ./install.sh [--interval 15min] [--providers opencode] [--no-timer] [--yes]
+#   ./install.sh [--interval 15min] [--providers opencode] [--no-timer] [--no-icon] [--yes]
 #
 # Run from the directory that contains pi-agent-usage (the collector).
 # Idempotent: safe to re-run.
@@ -17,6 +17,7 @@ set -euo pipefail
 INTERVAL="15min"
 PROVIDERS=""
 WITH_TIMER=1
+WITH_ICON=1
 ASSUME_YES=0
 
 BIN_DIR="${HOME}/.local/bin"
@@ -27,6 +28,9 @@ ENV_FILE="${CONF_DIR}/pi-usage.env"
 STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/omarchy/agents/usage"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 COLLECTOR_SRC="${SCRIPT_DIR}/pi-agent-usage"
+ICON_SRC_DIR="${SCRIPT_DIR}/assets"
+# Matches omarchy-plugin-clone's id scheme: <username>.<builtin-id-without-prefix>.
+CLONE_DIR="${HOME}/.config/omarchy/plugins/$(id -un).agents"
 
 # ------------------------------------------------------------------ output
 if [[ -t 1 ]]; then
@@ -39,12 +43,46 @@ ok()   { printf '%s ok %s %s\n' "$C_OK" "$C_OFF" "$*"; }
 warn() { printf '%swarn%s %s\n' "$C_WARN" "$C_OFF" "$*" >&2; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# The panel resolves a provider mark as assets/<id>.svg relative to its own
+# plugin directory, so a user mark requires the cloned (user-owned) widget.
+# Cloning forks the widget: it stops tracking upstream, which is the trade-off
+# Omarchy documents for customizing a built-in plugin.
+install_icon() {
+  if [[ ! -d $ICON_SRC_DIR ]]; then
+    warn "no assets/ directory next to install.sh; skipping the Pi icon"
+    return 0
+  fi
+  if ! command -v omarchy >/dev/null 2>&1; then
+    warn "omarchy not found; skipping the Pi icon"
+    return 0
+  fi
+
+  if [[ ! -d $CLONE_DIR ]]; then
+    info "Cloning omarchy.agents so a Pi mark can be added (forks the widget)"
+    if ! omarchy plugin clone omarchy.agents >/dev/null 2>&1; then
+      warn "could not clone omarchy.agents; skipping the Pi icon"
+      return 0
+    fi
+  fi
+
+  mkdir -p "$CLONE_DIR/assets"
+  install -m 0644 "$ICON_SRC_DIR/pi.svg" "$CLONE_DIR/assets/pi.svg"
+  install -m 0644 "$ICON_SRC_DIR/pi-light.svg" "$CLONE_DIR/assets/pi-light.svg"
+  ok "installed Pi mark -> $CLONE_DIR/assets/pi.svg"
+
+  # The panel caches a failed asset load, so force a plugin reload.
+  if command -v omarchy-shell >/dev/null 2>&1; then
+    omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+  fi
+}
+
 # ------------------------------------------------------------------- args
 while (( $# > 0 )); do
   case "$1" in
     --interval)  INTERVAL="${2:?--interval needs a value}"; shift 2 ;;
     --providers) PROVIDERS="${2:?--providers needs a value}"; shift 2 ;;
     --no-timer)  WITH_TIMER=0; shift ;;
+    --no-icon)   WITH_ICON=0; shift ;;
     --yes|-y)    ASSUME_YES=1; shift ;;
     -h|--help)
       sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -122,6 +160,11 @@ WantedBy=timers.target
 UNIT
 fi
 
+# ------------------------------------------------------------------ icon
+if (( WITH_ICON )); then
+  install_icon
+fi
+
 # ---------------------------------------------------------- run + activate
 info "Running collector once"
 # shellcheck disable=SC1090
@@ -160,5 +203,9 @@ cat <<EOF
   timer      : systemctl --user list-timers pi-agent-usage.timer
   logs       : journalctl --user -u pi-agent-usage.service -n 20
   uninstall  : ./uninstall.sh
+
+If the Pi tab shows the generic glyph instead of the Pi mark, the cloned
+widget may need one shell restart to drop the disabled stock handler:
+  omarchy restart shell
 
 EOF

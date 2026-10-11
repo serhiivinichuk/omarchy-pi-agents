@@ -49,6 +49,7 @@ Options:
 ./install.sh --providers opencode     # only count pi sessions on this backend
 ./install.sh --interval 5min          # refresh cadence (systemd time span)
 ./install.sh --no-timer               # install collector only, no systemd
+./install.sh --no-icon                # skip cloning the widget for the Pi mark
 ./install.sh --yes                    # non-interactive
 ```
 
@@ -62,11 +63,36 @@ Re-running is safe and idempotent.
 | `~/.config/systemd/user/pi-agent-usage.service` | Runs the collector (oneshot) |
 | `~/.config/systemd/user/pi-agent-usage.timer` | 2 min after login, then every 15 min |
 | `~/.config/omarchy/agents/pi-usage.env` | Optional settings (created once, never clobbered) |
+| `~/.config/omarchy/plugins/<user>.agents/assets/pi.svg` | Pi mark for the panel hero (see [Pi icon](#pi-icon)) |
 | `~/.local/state/omarchy/agents/usage/pi.json` | The record the panel reads |
 
 The collector scans `~/.pi/agent/sessions` and `~/.omp/agent/sessions`,
 aggregates every assistant message, and atomically replaces `pi.json`
 (temp file + `rename`, mode `600`) so the panel never reads a partial file.
+
+## Pi icon
+
+The panel draws a provider mark as `assets/<id>.svg` **relative to its own
+plugin directory**, so a user mark requires a user-owned copy of the widget.
+`install.sh` uses the documented clone workflow and drops in two files:
+
+| File | Surface it is used on |
+|---|---|
+| `assets/pi.svg` | dark surfaces (white mark) |
+| `assets/pi-light.svg` | light surfaces (dark mark) |
+
+```bash
+omarchy plugin clone omarchy.agents   # -> ~/.config/omarchy/plugins/<user>.agents
+```
+
+Skip it with `./install.sh --no-icon`.
+
+**Trade-off:** the clone is yours to maintain and stops tracking upstream
+fixes to the agents widget. If the mark does not appear immediately after
+cloning, run `omarchy restart shell` once — the disabled stock widget
+otherwise keeps the `omarchy.agents` IPC target and shadows the clone's
+handler. The bar button itself stays the generic agents glyph; only the
+provider mark inside the panel is provider-specific.
 
 ## How it works
 
@@ -175,7 +201,10 @@ Removes the collector, both units, and `pi.json`. The
 ```
 omarchy-pi-agents/
 ├── README.md
-├── install.sh          # self-contained installer (uses pi-agent-usage)
+├── install.sh          # self-contained installer (uses pi-agent-usage + assets)
 ├── uninstall.sh
-└── pi-agent-usage      # the collector
+├── pi-agent-usage      # the collector
+└── assets/
+    ├── pi.svg          # panel hero mark, dark surfaces
+    └── pi-light.svg    # panel hero mark, light surfaces
 ```
